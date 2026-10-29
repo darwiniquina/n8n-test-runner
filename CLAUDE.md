@@ -25,6 +25,10 @@ npm test             # unit tests (node:test)
 npm run typecheck    # tsc, no emit
 ```
 
+CI (`.github/workflows/ci.yml`) runs `typecheck` and `test` on Node 22 and 24
+for every PR and push to `main`. It has no n8n instance, so anything that needs
+one must stay out of `npm test`.
+
 The API key comes from the env var named in the config (`N8N_API_KEY` by
 default), or from an optional `.env`.
 
