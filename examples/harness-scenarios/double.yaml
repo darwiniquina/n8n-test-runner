@@ -1,0 +1,30 @@
+name: Harness runs a workflow that has no webhook
+workflow: "n8nt example: double"
+
+steps:
+  - name: Double 21
+    trigger:
+      harness:
+        input:
+          value: 21
+    expect:
+      response:
+        status: 200
+        body:
+          "[0].doubled": 42
+    capture:
+      doubled: response.body[0].doubled
+
+  - name: Double the previous result
+    trigger:
+      harness:
+        input:
+          value: "{{ doubled }}"
+    expect:
+      execution:
+        # The target's own execution, not the harness run that started it.
+        status: success
+        nodes:
+          Double:
+            output:
+              "[0].doubled": 84

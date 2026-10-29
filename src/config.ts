@@ -10,6 +10,7 @@ const environmentSchema = z.strictObject({
   // Webhooks can live elsewhere (for example a tunnel) while the API stays local.
   webhookBaseUrl: z.url().optional(),
   apiKeyEnv: z.string().default('N8N_API_KEY'),
+  harnessSecretEnv: z.string().default('N8N_HARNESS_SECRET'),
   variables: z
     .record(z.string().regex(VARIABLE_NAME), z.unknown())
     .default({}),
@@ -28,6 +29,8 @@ export type Environment = {
   webhookBaseUrl: string;
   apiKeyEnv: string;
   apiKey: string | undefined;
+  harnessSecretEnv: string;
+  harnessSecret: string | undefined;
   variables: Variables;
 };
 
@@ -37,6 +40,7 @@ const BUILT_IN_CONFIG: Config = {
     local: {
       baseUrl: 'http://localhost:5678',
       apiKeyEnv: 'N8N_API_KEY',
+      harnessSecretEnv: 'N8N_HARNESS_SECRET',
       variables: {},
     },
   },
@@ -91,6 +95,8 @@ export async function loadEnvironment(options: {
     webhookBaseUrl: trimSlash(environment.webhookBaseUrl ?? environment.baseUrl),
     apiKeyEnv: environment.apiKeyEnv,
     apiKey: process.env[environment.apiKeyEnv],
+    harnessSecretEnv: environment.harnessSecretEnv,
+    harnessSecret: process.env[environment.harnessSecretEnv],
     variables: environment.variables,
   };
 }

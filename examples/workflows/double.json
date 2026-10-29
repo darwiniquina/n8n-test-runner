@@ -1,0 +1,59 @@
+{
+  "name": "n8nt example: double",
+  "nodes": [
+    {
+      "id": "6b2d8f41-3c7a-4e95-a1d0-5f8e2c4b7a11",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "value",
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9e4a1c73-8b5d-4f02-b6e9-2d7c0a5f3b12",
+      "name": "Double",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1f8e3a5-4d9b-4b7e-8a2c-6e0d5f9b1a13",
+              "name": "doubled",
+              "value": "={{ $json.value * 2 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Double",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

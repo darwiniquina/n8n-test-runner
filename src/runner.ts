@@ -6,7 +6,14 @@ import {
   type N8nClient,
   type WebhookResponse,
 } from './n8n-client.ts';
-import type { Capture, Expectations, Scenario, Step } from './scenario.ts';
+import { findTargetExecution, triggerThroughHarness } from './harness.ts';
+import type {
+  Capture,
+  Expectations,
+  Scenario,
+  Step,
+  Trigger,
+} from './scenario.ts';
 import {
   interpolate,
   interpolateText,
@@ -128,8 +135,13 @@ function captureValues(
   return captured;
 }
 
-function interpolateTrigger(step: Step, variables: Variables) {
-  const webhook = step.trigger.webhook;
+function interpolateTrigger(trigger: Trigger, variables: Variables): Trigger {
+  if ('harness' in trigger) {
+    const input = interpolate(trigger.harness.input, variables);
+    return { harness: { input: input as Record<string, unknown> } };
+  }
+
+  const webhook = trigger.webhook;
   const textValues = (values: Record<string, string>) =>
     Object.fromEntries(
       Object.entries(values).map(([key, value]) => [
@@ -139,12 +151,38 @@ function interpolateTrigger(step: Step, variables: Variables) {
     );
 
   return {
-    ...webhook,
-    path: interpolateText(webhook.path, variables),
-    query: textValues(webhook.query),
-    headers: textValues(webhook.headers),
-    body: interpolate(webhook.body, variables),
+    webhook: {
+      ...webhook,
+      path: interpolateText(webhook.path, variables),
+      query: textValues(webhook.query),
+      headers: textValues(webhook.headers),
+      body: interpolate(webhook.body, variables),
+    },
   };
+}
+
+function fireTrigger(
+  trigger: Trigger,
+  client: N8nClient,
+  workflowId: string,
+  testRunId: string,
+) {
+  return 'webhook' in trigger
+    ? client.triggerWebhook(trigger.webhook, testRunId)
+    : triggerThroughHarness(client, workflowId, trigger.harness.input, testRunId);
+}
+
+// Through the harness, the run we check is the target's own execution, not
+// the harness execution that started it.
+function findStepExecution(
+  trigger: Trigger,
+  client: N8nClient,
+  workflowId: string,
+  testRunId: string,
+) {
+  return 'webhook' in trigger
+    ? client.findExecution(workflowId, testRunId)
+    : findTargetExecution(client, testRunId);
 }
 
 async function runStep(
@@ -162,13 +200,13 @@ async function runStep(
   };
 
   try {
-    const trigger = interpolateTrigger(step, variables);
+    const trigger = interpolateTrigger(step.trigger, variables);
     // Only values change here, so the structure still matches the schema.
     const expect = interpolate(step.expect, variables) as Expectations;
 
     const workflow = await client.resolveWorkflow(step.workflow);
     const testRunId = randomUUID();
-    const response = await client.triggerWebhook(trigger, testRunId);
+    const response = await fireTrigger(trigger, client, workflow.id, testRunId);
     result.checks.push(...responseChecks(response, expect.response));
 
     // Looking up the execution means polling, so only do it when needed.
@@ -178,7 +216,7 @@ async function runStep(
     let execution: Execution | undefined;
 
     if (expect.execution || capturesNodes) {
-      execution = await client.findExecution(workflow.id, testRunId);
+      execution = await findStepExecution(trigger, client, workflow.id, testRunId);
       result.executionId = execution.id;
       result.executionError = execution.data?.resultData?.error?.message;
     }

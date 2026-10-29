@@ -1,21 +1,32 @@
 import { basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadEnvironment } from './config.ts';
+import { harnessStatus, installHarness, uninstallHarness } from './harness.ts';
 import { createN8nClient } from './n8n-client.ts';
 import { printResult, printSummary } from './report.ts';
 import { runScenario, type ScenarioResult } from './runner.ts';
 import { findScenarioFiles, loadScenario } from './scenario.ts';
 
+const ENV_FILE = '.env';
+
+// Captured before .env is loaded, to tell real environment variables apart
+// from values that came from .env.
+const REAL_ENVIRONMENT_KEYS = new Set(Object.keys(process.env));
+
 const USAGE = `Usage:
   n8nt doctor                 check the connection to n8n
   n8nt run <paths...>         run scenario files or folders
+  n8nt harness install        add the harness workflow to n8n (for harness triggers)
+  n8nt harness uninstall      remove the harness workflow and its credential
 
 Options:
   --config <file>   config file (default: n8nt.config.yaml)
   --env <name>      environment from the config (default: defaultEnvironment)
   --json            print results as JSON instead of text`;
 
-async function doctor(options: { configPath?: string; envName?: string }) {
+type CommonOptions = { configPath?: string; envName?: string };
+
+async function doctor(options: CommonOptions) {
   const environment = await loadEnvironment(options);
   const client = createN8nClient(environment);
 
@@ -30,11 +41,53 @@ async function doctor(options: { configPath?: string; envName?: string }) {
 
   await client.checkApiKey();
   console.log(`ok           API key from ${environment.apiKeyEnv} is accepted`);
+
+  // The harness is optional, so its state is reported, not treated as an error.
+  const status = await harnessStatus(client);
+  const secret = environment.harnessSecret
+    ? `${environment.harnessSecretEnv} is set`
+    : `${environment.harnessSecretEnv} is not set`;
+  console.log(`harness      ${status}, ${secret}`);
+}
+
+async function harness(action: string | undefined, options: CommonOptions) {
+  const environment = await loadEnvironment(options);
+  const client = createN8nClient(environment);
+
+  if (action === 'install') {
+    const result = await installHarness(client, environment, ENV_FILE);
+    console.log(`ok   harness workflow installed and active (${result.workflowId})`);
+    console.log(`ok   secret saved to ${ENV_FILE} as ${environment.harnessSecretEnv}`);
+    console.log(`     keep ${ENV_FILE} out of git`);
+
+    // A real environment variable wins over .env, so the new secret would be
+    // ignored until that variable is updated or removed.
+    if (REAL_ENVIRONMENT_KEYS.has(environment.harnessSecretEnv)) {
+      console.log(
+        `warn ${environment.harnessSecretEnv} is also set in your environment, ` +
+          `which wins over ${ENV_FILE}. Remove or update it, or harness calls get 403.`,
+      );
+    }
+    return;
+  }
+
+  if (action === 'uninstall') {
+    const result = await uninstallHarness(client);
+    console.log(
+      result.deletedWorkflow
+        ? 'ok   harness workflow deleted'
+        : 'ok   no harness workflow to delete',
+    );
+    console.log(`ok   deleted ${result.deletedCredentials} harness credential(s)`);
+    return;
+  }
+
+  throw new Error(`Use "n8nt harness install" or "n8nt harness uninstall".`);
 }
 
 async function run(
   paths: string[],
-  options: { configPath?: string; envName?: string; json: boolean },
+  options: CommonOptions & { json: boolean },
 ) {
   if (paths.length === 0) {
     throw new Error('Give at least one scenario file or folder.');
@@ -83,7 +136,7 @@ async function run(
 
 function loadDotEnv() {
   try {
-    process.loadEnvFile('.env');
+    process.loadEnvFile(ENV_FILE);
   } catch {
     // .env is optional. The API key can come from the real environment.
   }
@@ -114,6 +167,8 @@ async function main() {
     await doctor(options);
   } else if (command === 'run') {
     await run(paths, { ...options, json: values.json });
+  } else if (command === 'harness') {
+    await harness(paths[0], options);
   } else {
     throw new Error(`Unknown command "${command}".\n\n${USAGE}`);
   }

@@ -94,6 +94,42 @@ steps:
 - A value that is exactly `"{{ name }}"` keeps its type (number, object).
 - Unknown variables are an error, never an empty string.
 
+## Workflows without a webhook (harness)
+
+To test a workflow that has no webhook (schedule, manual, sub-workflow), install
+the harness once. It is a small workflow that runs any published workflow by ID:
+
+```bash
+npm run n8nt -- harness install     # creates the workflow and a Header Auth credential
+npm run n8nt -- harness uninstall   # removes both
+```
+
+`install` saves the secret to `.env` as `N8N_HARNESS_SECRET`. Keep `.env` out of
+git. If that variable is also set in your real environment, that value wins.
+
+The target workflow needs a **When Executed by Another Workflow** trigger (its
+normal trigger can stay) and must be **published** (active). Then:
+
+```yaml
+name: Payroll export totals
+workflow: Monthly Payroll Export
+
+trigger:
+  harness:
+    input: { month: "2026-10" }
+
+expect:
+  response:
+    body:
+      "[0].total": { $gt: 0 }      # the target's output items
+  execution:
+    status: success                 # the target's own execution
+```
+
+If the trigger defines input fields, only fields with matching names arrive.
+Try it with `examples/workflows/double.json` (import and publish it) and
+`npm run example:harness`.
+
 Run a file or a whole folder:
 
 ```bash

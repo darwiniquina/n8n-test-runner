@@ -10,6 +10,7 @@
   "scripts": {
     "n8nt": "node src/cli.ts",
     "example": "node src/cli.ts run examples/scenarios --config examples/n8nt.config.yaml",
+    "example:harness": "node src/cli.ts run examples/harness-scenarios --config examples/n8nt.config.yaml",
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc"
   },

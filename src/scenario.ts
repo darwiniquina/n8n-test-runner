@@ -29,9 +29,16 @@ const webhookTriggerSchema = z
     'Use either body or bodyFile, not both.',
   );
 
-const triggerSchema = z.strictObject({
-  webhook: webhookTriggerSchema,
+// Runs the scenario's workflow through the harness, so it needs no webhook.
+// The input becomes the single item the target's trigger receives.
+const harnessTriggerSchema = z.strictObject({
+  input: z.record(z.string(), z.unknown()).default({}),
 });
+
+const triggerSchema = z.union([
+  z.strictObject({ webhook: webhookTriggerSchema }),
+  z.strictObject({ harness: harnessTriggerSchema }),
+]);
 
 const nodeExpectationSchema = z.strictObject({
   ran: z.boolean().default(true),
@@ -123,13 +130,14 @@ const scenarioFileSchema = z
 type ScenarioFile = z.infer<typeof scenarioFileSchema>;
 
 export type WebhookTrigger = z.infer<typeof webhookTriggerSchema>;
+export type Trigger = z.infer<typeof triggerSchema>;
 export type Expectations = z.infer<typeof expectSchema>;
 export type Capture = z.infer<typeof captureSchema>;
 
 export type Step = {
   name: string;
   workflow: string;
-  trigger: { webhook: WebhookTrigger };
+  trigger: Trigger;
   expect: Expectations;
   capture: Record<string, Capture>;
 };
@@ -220,7 +228,9 @@ export async function loadScenario(file: string): Promise<Scenario> {
   const scenario = parseScenario(parse(text), file);
 
   for (const step of scenario.steps) {
-    await loadBodyFile(file, step.trigger.webhook);
+    if ('webhook' in step.trigger) {
+      await loadBodyFile(file, step.trigger.webhook);
+    }
   }
 
   return scenario;
