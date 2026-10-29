@@ -1,0 +1,26 @@
+name: Echo returns the message it received
+workflow: "n8nt example: echo"
+
+trigger:
+  webhook:
+    method: POST
+    path: n8nt-echo
+    bodyFile: ../fixtures/hello.json
+
+expect:
+  response:
+    status: 200
+    maxDurationMs: 5000
+    body:
+      echo: hello from n8nt
+
+  execution:
+    status: success
+    nodes:
+      Webhook:
+        output:
+          "[0].body.message": hello from n8nt
+      Build Reply:
+        output:
+          "[0].length": { $gt: 0 }
+          "[0].echo": { $contains: n8nt }

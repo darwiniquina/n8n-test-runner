@@ -1,0 +1,24 @@
+{
+  "name": "n8n-test-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run saved test scenarios against an n8n instance, Postman style, from the command line.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "n8nt": "node src/cli.ts",
+    "example": "node src/cli.ts run examples/scenarios --config examples/n8nt.config.yaml",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}

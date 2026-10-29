@@ -1,0 +1,61 @@
+{
+  "name": "n8nt example: echo",
+  "nodes": [
+    {
+      "id": "4f1d5b8e-2a43-4c1e-9b7a-0c6f2e9d1a01",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "8a7c3e52-6d1b-4f0a-a9e4-3b2d7c5f1e02",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "n8nt-echo",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c2e9a7d4-1b5f-4e3a-8d6c-9f0b2a4e7c03",
+      "name": "Build Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e5b3c1a9-7d2f-4a6e-b8c0-1f9d3e5a7b04",
+              "name": "echo",
+              "value": "={{ $json.body.message }}",
+              "type": "string"
+            },
+            {
+              "id": "a1f7d3b5-9c2e-4d8a-b6e0-3c5f7a9b1d05",
+              "name": "length",
+              "value": "={{ $json.body.message.length }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
