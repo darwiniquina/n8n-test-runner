@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { VARIABLE_NAME, type Variables } from './variables.ts';
@@ -61,11 +62,17 @@ async function readConfig(configPath: string, isExplicit: boolean) {
     throw error;
   }
 
-  const result = configSchema.safeParse(parse(text));
+  try {
+    return parseConfig(parse(text));
+  } catch (error) {
+    throw new Error(`Invalid config ${configPath}:\n${(error as Error).message}`);
+  }
+}
+
+export function parseConfig(data: unknown): Config {
+  const result = configSchema.safeParse(data);
   if (!result.success) {
-    throw new Error(
-      `Invalid config ${configPath}:\n${z.prettifyError(result.error)}`,
-    );
+    throw new Error(z.prettifyError(result.error));
   }
 
   return result.data;
@@ -75,12 +82,39 @@ function trimSlash(url: string) {
   return url.replace(/\/+$/, '');
 }
 
-export async function loadEnvironment(options: {
+export type ConfigLocation = {
+  // An explicit file must exist.
   configPath?: string;
-  envName?: string;
-}): Promise<Environment> {
-  const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
-  const config = await readConfig(configPath, Boolean(options.configPath));
+  // Otherwise n8nt.config.yaml in this folder (default: the working
+  // directory), falling back to a local n8n when it does not exist.
+  configDir?: string;
+};
+
+export async function loadConfig(location: ConfigLocation) {
+  const configPath =
+    location.configPath ?? join(location.configDir ?? '.', DEFAULT_CONFIG_PATH);
+
+  return readConfig(configPath, Boolean(location.configPath));
+}
+
+// Environment names and URLs only, never keys or secrets. Safe to send to the UI.
+export async function listEnvironments(location: ConfigLocation) {
+  const config = await loadConfig(location);
+
+  return {
+    defaultEnvironment: config.defaultEnvironment,
+    environments: Object.entries(config.environments).map(([name, environment]) => ({
+      name,
+      baseUrl: trimSlash(environment.baseUrl),
+      webhookBaseUrl: trimSlash(environment.webhookBaseUrl ?? environment.baseUrl),
+    })),
+  };
+}
+
+export async function loadEnvironment(
+  options: ConfigLocation & { envName?: string },
+): Promise<Environment> {
+  const config = await loadConfig(options);
 
   const name = options.envName ?? config.defaultEnvironment;
   const environment = config.environments[name];

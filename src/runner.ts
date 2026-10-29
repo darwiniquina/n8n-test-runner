@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 import { checkPaths, getPath, type Check } from './assertions.ts';
 import {
   nodeItems,
@@ -7,12 +8,13 @@ import {
   type WebhookResponse,
 } from './n8n-client.ts';
 import { findTargetExecution, triggerThroughHarness } from './harness.ts';
-import type {
-  Capture,
-  Expectations,
-  Scenario,
-  Step,
-  Trigger,
+import {
+  loadScenario,
+  type Capture,
+  type Expectations,
+  type Scenario,
+  type Step,
+  type Trigger,
 } from './scenario.ts';
 import {
   interpolate,
@@ -21,12 +23,32 @@ import {
   type Variables,
 } from './variables.ts';
 
+// Keeps run history files and UI payloads small for workflows that produce
+// many items.
+const MAX_ITEMS_PER_NODE = 20;
+
+export type NodeSummary = {
+  name: string;
+  status: 'success' | 'error';
+  itemCount: number;
+  items: unknown[];
+  error?: string;
+};
+
+export type ExecutionSummary = {
+  id: string;
+  status: string;
+  nodes: NodeSummary[];
+};
+
 export type StepResult = {
   name: string;
   status: 'passed' | 'failed' | 'skipped';
   durationMs: number;
   executionId?: string;
   executionError?: string;
+  // Per-node output, only when the run asked for it (the UI does).
+  execution?: ExecutionSummary;
   checks: Check[];
   captured: Variables;
   error?: string;
@@ -41,6 +63,38 @@ export type ScenarioResult = {
   // Set when the scenario could not start at all (bad file, bad variables).
   error?: string;
 };
+
+export type RunOptions = {
+  // Look up the execution for every step, so its node output can be shown,
+  // even when the step has no execution checks.
+  includeExecution?: boolean;
+  onStepStart?: (event: { index: number; name: string }) => void;
+  onStepEnd?: (event: { index: number; result: StepResult }) => void;
+};
+
+// Nodes in the order n8n ran them, with each node's first run and first output.
+export function summarizeExecution(execution: Execution): ExecutionSummary {
+  const runData = execution.data?.resultData?.runData ?? {};
+
+  const nodes = Object.entries(runData).map(([name, runs]): NodeSummary => {
+    const run = runs[0];
+    const items = (run?.data?.main?.[0] ?? []).map((item) => item.json);
+    const summary: NodeSummary = {
+      name,
+      status: run?.error ? 'error' : 'success',
+      itemCount: items.length,
+      items: items.slice(0, MAX_ITEMS_PER_NODE),
+    };
+
+    if (run?.error?.message) {
+      summary.error = run.error.message;
+    }
+
+    return summary;
+  });
+
+  return { id: execution.id, status: execution.status, nodes };
+}
 
 function responseChecks(
   response: WebhookResponse,
@@ -189,6 +243,7 @@ async function runStep(
   step: Step,
   client: N8nClient,
   variables: Variables,
+  includeExecution: boolean,
 ): Promise<StepResult> {
   const startedAt = Date.now();
   const result: StepResult = {
@@ -215,10 +270,14 @@ async function runStep(
     );
     let execution: Execution | undefined;
 
-    if (expect.execution || capturesNodes) {
+    if (expect.execution || capturesNodes || includeExecution) {
       execution = await findStepExecution(trigger, client, workflow.id, testRunId);
       result.executionId = execution.id;
       result.executionError = execution.data?.resultData?.error?.message;
+
+      if (includeExecution) {
+        result.execution = summarizeExecution(execution);
+      }
     }
 
     if (execution && expect.execution) {
@@ -247,6 +306,7 @@ export async function runScenario(
   scenario: Scenario,
   client: N8nClient,
   environmentVariables: Variables = {},
+  options: RunOptions = {},
 ): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result: ScenarioResult = {
@@ -268,26 +328,58 @@ export async function runScenario(
     return result;
   }
 
-  for (const step of scenario.steps) {
+  for (const [index, step] of scenario.steps.entries()) {
     // Later steps usually depend on earlier ones, so stop at the first failure.
     const previousFailed = result.steps.some((done) => done.status !== 'passed');
+    let stepResult: StepResult;
+
     if (previousFailed) {
-      result.steps.push({
+      stepResult = {
         name: step.name,
         status: 'skipped',
         durationMs: 0,
         checks: [],
         captured: {},
-      });
-      continue;
+      };
+    } else {
+      options.onStepStart?.({ index, name: step.name });
+      stepResult = await runStep(
+        step,
+        client,
+        variables,
+        options.includeExecution ?? false,
+      );
+      Object.assign(variables, stepResult.captured);
     }
 
-    const stepResult = await runStep(step, client, variables);
-    Object.assign(variables, stepResult.captured);
     result.steps.push(stepResult);
+    options.onStepEnd?.({ index, result: stepResult });
   }
 
   result.passed = result.steps.every((step) => step.status === 'passed');
   result.durationMs = Date.now() - startedAt;
   return result;
+}
+
+// Loads and runs one file. A file that cannot be loaded becomes a failed
+// result instead of an exception, so one bad file never stops a whole run.
+export async function runScenarioFile(
+  file: string,
+  client: N8nClient,
+  environmentVariables: Variables = {},
+  options: RunOptions = {},
+): Promise<ScenarioResult> {
+  try {
+    const scenario = await loadScenario(file);
+    return await runScenario(scenario, client, environmentVariables, options);
+  } catch (error) {
+    return {
+      file,
+      name: basename(file),
+      passed: false,
+      durationMs: 0,
+      steps: [],
+      error: (error as Error).message,
+    };
+  }
 }

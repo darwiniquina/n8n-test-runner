@@ -1,13 +1,17 @@
-import { basename } from 'node:path';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadEnvironment } from './config.ts';
 import { harnessStatus, installHarness, uninstallHarness } from './harness.ts';
 import { createN8nClient } from './n8n-client.ts';
 import { printResult, printSummary } from './report.ts';
-import { runScenario, type ScenarioResult } from './runner.ts';
-import { findScenarioFiles, loadScenario } from './scenario.ts';
+import { runScenarioFile, type ScenarioResult } from './runner.ts';
+import { findScenarioFiles } from './scenario.ts';
+import { startServer } from './server.ts';
 
 const ENV_FILE = '.env';
+const DEFAULT_UI_PORT = 4567;
 
 // Captured before .env is loaded, to tell real environment variables apart
 // from values that came from .env.
@@ -18,11 +22,14 @@ const USAGE = `Usage:
   n8nt run <paths...>         run scenario files or folders
   n8nt harness install        add the harness workflow to n8n (for harness triggers)
   n8nt harness uninstall      remove the harness workflow and its credential
+  n8nt ui [folder]            start the local UI for a scenario folder (default: .)
 
 Options:
   --config <file>   config file (default: n8nt.config.yaml)
   --env <name>      environment from the config (default: defaultEnvironment)
-  --json            print results as JSON instead of text`;
+  --json            print results as JSON instead of text
+  --port <number>   UI port (default: ${DEFAULT_UI_PORT})
+  --no-open         start the UI without opening a browser`;
 
 type CommonOptions = { configPath?: string; envName?: string };
 
@@ -101,22 +108,7 @@ async function run(
   // Run one at a time: it keeps execution lookups simple and avoids flooding
   // a local n8n with parallel runs.
   for (const file of files) {
-    let result: ScenarioResult;
-
-    try {
-      const scenario = await loadScenario(file);
-      result = await runScenario(scenario, client, environment.variables);
-    } catch (error) {
-      result = {
-        file,
-        name: basename(file),
-        passed: false,
-        durationMs: 0,
-        steps: [],
-        error: (error as Error).message,
-      };
-    }
-
+    const result = await runScenarioFile(file, client, environment.variables);
     results.push(result);
     if (!options.json) {
       printResult(result);
@@ -134,9 +126,55 @@ async function run(
   }
 }
 
-function loadDotEnv() {
+function openBrowser(url: string) {
+  const [command, args]: [string, string[]] =
+    process.platform === 'win32'
+      ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+
+  const child = spawn(command, args, { stdio: 'ignore', detached: true });
+  child.on('error', () => console.log('Could not open a browser. Open the URL above.'));
+  child.unref();
+}
+
+async function ui(
+  folder: string | undefined,
+  options: { configPath?: string; port?: string; open: boolean },
+) {
+  const root = resolve(folder ?? '.');
+
+  // The scenario folder's .env holds its API key and harness secret. Values
+  // already loaded from the working directory's .env still win.
+  if (folder) {
+    loadDotEnv(join(root, ENV_FILE));
+  }
+
+  const port = Number(options.port ?? DEFAULT_UI_PORT);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new Error(`Invalid --port "${options.port}".`);
+  }
+
+  const server = await startServer({
+    root,
+    configPath: options.configPath,
+    port,
+    token: randomBytes(24).toString('hex'),
+  });
+
+  console.log(`n8nt UI for ${root}`);
+  console.log(`open  ${server.url}`);
+  console.log('Press Ctrl+C to stop.');
+
+  if (options.open) {
+    openBrowser(server.url);
+  }
+}
+
+function loadDotEnv(file = ENV_FILE) {
   try {
-    process.loadEnvFile(ENV_FILE);
+    process.loadEnvFile(file);
   } catch {
     // .env is optional. The API key can come from the real environment.
   }
@@ -147,10 +185,13 @@ async function main() {
 
   const { positionals, values } = parseArgs({
     allowPositionals: true,
+    allowNegative: true,
     options: {
       config: { type: 'string' },
       env: { type: 'string' },
       json: { type: 'boolean', default: false },
+      port: { type: 'string' },
+      open: { type: 'boolean', default: true },
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
@@ -169,6 +210,8 @@ async function main() {
     await run(paths, { ...options, json: values.json });
   } else if (command === 'harness') {
     await harness(paths[0], options);
+  } else if (command === 'ui') {
+    await ui(paths[0], { configPath: values.config, port: values.port, open: values.open });
   } else {
     throw new Error(`Unknown command "${command}".\n\n${USAGE}`);
   }

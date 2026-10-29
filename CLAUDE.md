@@ -19,6 +19,7 @@ and backing it up.
 npm run n8nt -- doctor --config examples/n8nt.config.yaml   # check connection and API key
 npm run n8nt -- run <files or folders> [--env name] [--json]
 npm run n8nt -- harness install|uninstall --config examples/n8nt.config.yaml
+npm run n8nt -- ui examples --no-open      # local UI server for a scenario folder
 npm run example          # examples/scenarios (needs examples/workflows/echo.json imported and active)
 npm run example:harness  # examples/harness-scenarios (needs the harness and double.json)
 npm test             # unit tests (node:test)
@@ -43,6 +44,11 @@ default), or from an optional `.env`.
 - `src/n8n-client.ts`: n8n API and webhook calls, execution lookup.
 - `src/harness.ts`: the harness workflow definition, install/uninstall, and
   finding the target's execution from a harness run.
+- `src/server.ts`: `n8nt ui` HTTP server (node:http, no framework) and its
+  `/api/*` routes.
+- `src/workspace.ts`: safe file access inside the scenario folder, the file
+  tree, and `validateDocument` (scenario or config schema).
+- `src/history.ts`: run history as JSON files in `<scenario folder>/.runs/`.
 - `src/runner.ts`: runs a scenario step by step, builds checks, captures values.
 - `src/assertions.ts`: path lookup (`a.b[0].c`) and matchers (`$exists`,
   `$type`, `$contains`, `$matches`, `$gt`, `$lt`).
@@ -84,6 +90,26 @@ from the "Run Target" run (`metadata.subExecution.executionId` on success,
 `error.executionId` on failure), and fetches that execution. Checks and node
 captures apply to the target's execution, never the harness's.
 
+### UI server API
+
+`n8nt ui [folder]` serves on `127.0.0.1` (default port 4567). Every `/api/*`
+call needs the `X-N8nt-Token` header (random per launch, printed in the URL as
+`?token=`).
+
+| Route | Purpose |
+|---|---|
+| `GET /api/tree` | editable files (`.yaml`, `.yml`, `.json`), folders first |
+| `GET /api/files?path=` | content plus `validation` |
+| `PUT /api/files?path=` | `{ content, force? }`; 422 with `validation` when invalid and not forced |
+| `POST /api/validate` | `{ path, content }` → validation, for live editor checks |
+| `GET /api/environments` | names and URLs only, never keys |
+| `POST /api/runs` | `{ paths, environment? }` → server-sent events: `run-start`, `scenario-start`, `step-start`, `step-end`, `scenario-end`, `run-end` (or `run-error`) |
+| `GET /api/runs`, `GET /api/runs/:id` | history summaries, one full run |
+
+UI runs pass `includeExecution`, so every step carries `execution.nodes`
+(first run, first output, at most 20 items per node). The CLI does not, which
+keeps `n8nt run` from polling for executions it does not check.
+
 ## Things that are easy to get wrong
 
 - **No build step.** Node runs the `.ts` files directly (type stripping, Node
@@ -92,6 +118,13 @@ captures apply to the target's execution, never the harness's.
   (`verbatimModuleSyntax`). Relative imports keep the `.ts` extension.
 - **TypeScript is v7** (the native compiler). `@types/node` is pinned to 24 to
   match the Node version in use.
+- **The UI server writes files and triggers n8n**, so keep its guards: bind
+  to `127.0.0.1`, check `Host` against `127.0.0.1:<port>` and
+  `localhost:<port>` (DNS rebinding), require the token on `/api/*`, and route
+  every path through `workspace.ts`, which checks it after resolving symlinks.
+  Only `.yaml`, `.yml` and `.json` can be read or written, so `.env` never is.
+- **One UI run at a time** (409 otherwise). A run keeps going and is saved to
+  history even if the browser closes the stream.
 - **Only `n8nt harness install/uninstall` changes n8n.** `run` and `doctor`
   never create, activate or delete anything. An inactive workflow or an unknown
   webhook path is reported as an error, not fixed.
@@ -134,7 +167,9 @@ Done: Phase 0 (spike), Phase 1 (core + CLI), Phase 2 (multi-step scenarios,
 variables, captures, harness). Background for the harness is in
 `docs/phase-2-harness-findings.md`. Next:
 
-- **Phase 3:** local web UI (`n8nt ui`): collection tree, editor, run button,
-  node-by-node results, history.
+- **Phase 3:** local web UI. 3A (server and API) is done. 3B: React + Vite +
+  CodeMirror frontend served by the same server, replacing `PLACEHOLDER_PAGE`
+  in `server.ts`: file tree, YAML editor with inline validation, run button,
+  live step results with expandable node output, history.
 - **Phase 4:** mocking by swapping external nodes on a temporary workflow copy
   (pinned data does not apply to webhook runs), JUnit reporter, watch mode.
