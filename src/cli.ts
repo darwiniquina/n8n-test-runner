@@ -52,14 +52,14 @@ async function run(
 
     try {
       const scenario = await loadScenario(file);
-      result = await runScenario(scenario, client);
+      result = await runScenario(scenario, client, environment.variables);
     } catch (error) {
       result = {
         file,
         name: basename(file),
         passed: false,
         durationMs: 0,
-        checks: [],
+        steps: [],
         error: (error as Error).message,
       };
     }

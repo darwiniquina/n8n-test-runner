@@ -31,9 +31,11 @@ default), or from an optional `.env`.
 - `src/cli.ts`: argument parsing, `doctor` and `run` commands.
 - `src/config.ts`: `n8nt.config.yaml` environments. Falls back to
   `localhost:5678` when no config file exists.
-- `src/scenario.ts`: zod schema for scenario files, discovery, `bodyFile` loading.
+- `src/scenario.ts`: zod schema for scenario files, discovery, `bodyFile`
+  loading. Both forms (top-level `trigger` or `steps`) become a list of steps.
+- `src/variables.ts`: `{{ name }}` interpolation, built-ins (`$uuid`, `$now`).
 - `src/n8n-client.ts`: n8n API and webhook calls, execution lookup.
-- `src/runner.ts`: runs one scenario and builds its checks.
+- `src/runner.ts`: runs a scenario step by step, builds checks, captures values.
 - `src/assertions.ts`: path lookup (`a.b[0].c`) and matchers (`$exists`,
   `$type`, `$contains`, `$matches`, `$gt`, `$lt`).
 - `src/report.ts`: console output.
@@ -43,17 +45,25 @@ default), or from an optional `.env`.
 
 ## How a run works
 
-1. Resolve the workflow by exact name, else by ID. It must be active.
-2. Call the production webhook (`/webhook/<path>`) with `__testRunId=<uuid>`
+Variables resolve first: environment `variables` from the config, then the
+scenario's `variables` (in order, each can use the ones before). Then, for each
+step:
+
+1. Interpolate `{{ name }}` in the trigger (path, query, headers, body) and in
+   expected values.
+2. Resolve the workflow by exact name, else by ID. It must be active.
+3. Call the production webhook (`/webhook/<path>`) with `__testRunId=<uuid>`
    added to the query string.
-3. Check the response.
-4. Only if `expect.execution` is set: poll
+4. Check the response.
+5. Only if `expect.execution` is set or a capture reads a node: poll
    `GET /executions?workflowId=...&includeData=true&limit=20` until an execution
    whose trigger output has that `__testRunId` in its `query` appears, then
    check status and node output. Node output is the `json` of each item in the
    node's first run, first output (`runData[node][0].data.main[0]`).
+6. Capture values into variables for later steps.
 
-Scenarios run one at a time on purpose.
+After a failed step, the remaining steps are skipped. Scenarios and steps run
+one at a time on purpose.
 
 ## Things that are easy to get wrong
 
@@ -78,18 +88,30 @@ Scenarios run one at a time on purpose.
 - **Matchers vs literal objects:** an object whose keys all start with `$` is a
   matcher, anything else is compared with deep equality. Unknown `$` operators
   throw rather than silently passing.
-- **A scenario with no checks fails**, so a typo under `expect` cannot pass
-  silently. Scenario and config schemas are strict for the same reason.
+- **A step with no checks and no captures fails**, so a typo under `expect`
+  cannot pass silently. Scenario and config schemas are strict for the same
+  reason. A capture that finds nothing also fails its step.
+- **Unknown variables throw.** They never become an empty string, which would
+  send wrong data to n8n.
+- **A string that is exactly one placeholder keeps the variable's type**
+  (`"{{ count }}"` can be a number). Mixed text always becomes a string. Paths,
+  query values and headers always use the text form.
+- **`$uuid` and `$now` give a new value on every reference.** Assign one to a
+  scenario variable to reuse it.
+- **zod 4 defaults:** `.default()` still fills in a value under `.optional()`.
+  Scenario-level `expect`/`capture` must stay without defaults, or every
+  multi-step file fails the "steps or trigger" check.
 
 ## Roadmap
 
-Phase 0 (spike) and Phase 1 (core + CLI) are done. Next, per the original plan:
+Done: Phase 0 (spike), Phase 1 (core + CLI), Phase 2 part 1 (multi-step
+scenarios, variables, captures). Next:
 
-- **Phase 2:** harness workflow to run any workflow by ID (Execute Workflow),
-  multi-step scenarios with variables and captures.
+- **Phase 2 part 2:** harness workflow to run any workflow by ID (branch
+  `feat/harness`). Read `docs/phase-2-harness-findings.md` first: targets must
+  be published, the target's execution ID is in the harness run on success and
+  failure, and the harness secret appears in its execution data.
 - **Phase 3:** local web UI (`n8nt ui`): collection tree, editor, run button,
   node-by-node results, history.
 - **Phase 4:** mocking by swapping external nodes on a temporary workflow copy
   (pinned data does not apply to webhook runs), JUnit reporter, watch mode.
-
-Not yet verified: what error executions look like through the API.
