@@ -55,6 +55,45 @@ expect:
 Paths use `a.b[0].c`. Plain values are compared exactly. Matchers:
 `$exists`, `$type`, `$contains`, `$matches`, `$gt`, `$lt`.
 
+## Multi-step scenarios and variables
+
+Use `steps` to chain calls. `capture` saves a value for later steps, and
+`{{ name }}` uses it. After a failed step, the rest are skipped.
+
+```yaml
+name: Create then fetch employee
+workflow: Employee API            # default for every step
+variables:
+  email: "test+{{ $uuid }}@example.com"
+
+steps:
+  - name: Create
+    trigger:
+      webhook:
+        path: employees
+        body: { email: "{{ email }}" }
+    expect:
+      response: { status: 201 }
+    capture:
+      employeeId: response.body.id                          # from the response
+      rowNumber: { node: Append Row, path: "[0].row_number" }  # from a node's output
+
+  - name: Fetch
+    trigger:
+      webhook:
+        method: GET
+        path: "employees/{{ employeeId }}"
+    expect:
+      response:
+        body: { email: "{{ email }}" }
+```
+
+- Variables come from the environment's `variables` in `n8nt.config.yaml`, the
+  scenario's `variables`, and captures. Built-ins: `{{ $uuid }}` and
+  `{{ $now }}`, which give a new value on each use.
+- A value that is exactly `"{{ name }}"` keeps its type (number, object).
+- Unknown variables are an error, never an empty string.
+
 Run a file or a whole folder:
 
 ```bash

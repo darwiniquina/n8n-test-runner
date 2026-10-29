@@ -1,0 +1,42 @@
+name: Captured values flow into the next step
+workflow: "n8nt example: echo"
+
+variables:
+  # Resolved once, so every step sees the same value.
+  message: "{{ greeting }} {{ $uuid }}"
+
+steps:
+  - name: First call
+    trigger:
+      webhook:
+        path: n8nt-echo
+        body:
+          message: "{{ message }}"
+    expect:
+      response:
+        status: 200
+        body:
+          echo: "{{ message }}"
+    capture:
+      firstEcho: response.body.echo
+      firstLength:
+        node: Build Reply
+        path: "[0].length"
+
+  - name: Second call reuses the first reply
+    trigger:
+      webhook:
+        path: n8nt-echo
+        body:
+          message: "again: {{ firstEcho }}"
+    expect:
+      response:
+        body:
+          echo: "again: {{ firstEcho }}"
+      execution:
+        status: success
+        nodes:
+          Build Reply:
+            output:
+              # A whole-placeholder value keeps its type, so this compares numbers.
+              "[0].length": { $gt: "{{ firstLength }}" }

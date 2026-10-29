@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
 import { z } from 'zod';
+import { VARIABLE_NAME, type Variables } from './variables.ts';
 
 export const DEFAULT_CONFIG_PATH = 'n8nt.config.yaml';
 
@@ -9,6 +10,9 @@ const environmentSchema = z.strictObject({
   // Webhooks can live elsewhere (for example a tunnel) while the API stays local.
   webhookBaseUrl: z.url().optional(),
   apiKeyEnv: z.string().default('N8N_API_KEY'),
+  variables: z
+    .record(z.string().regex(VARIABLE_NAME), z.unknown())
+    .default({}),
 });
 
 const configSchema = z.strictObject({
@@ -24,6 +28,7 @@ export type Environment = {
   webhookBaseUrl: string;
   apiKeyEnv: string;
   apiKey: string | undefined;
+  variables: Variables;
 };
 
 const BUILT_IN_CONFIG: Config = {
@@ -32,6 +37,7 @@ const BUILT_IN_CONFIG: Config = {
     local: {
       baseUrl: 'http://localhost:5678',
       apiKeyEnv: 'N8N_API_KEY',
+      variables: {},
     },
   },
 };
@@ -85,5 +91,6 @@ export async function loadEnvironment(options: {
     webhookBaseUrl: trimSlash(environment.webhookBaseUrl ?? environment.baseUrl),
     apiKeyEnv: environment.apiKeyEnv,
     apiKey: process.env[environment.apiKeyEnv],
+    variables: environment.variables,
   };
 }

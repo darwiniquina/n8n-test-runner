@@ -4,6 +4,8 @@ environments:
   local:
     baseUrl: http://localhost:5678
     apiKeyEnv: N8N_API_KEY
+    variables:
+      greeting: hello from local
 
   # Webhooks through the Cloudflare tunnel, API still on localhost.
   # Replace the address with the tunnel's current URL.
@@ -11,3 +13,5 @@ environments:
     baseUrl: http://localhost:5678
     webhookBaseUrl: https://example.trycloudflare.com
     apiKeyEnv: N8N_API_KEY
+    variables:
+      greeting: hello from the tunnel
