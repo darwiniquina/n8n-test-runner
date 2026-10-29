@@ -18,7 +18,9 @@ and backing it up.
 ```bash
 npm run n8nt -- doctor --config examples/n8nt.config.yaml   # check connection and API key
 npm run n8nt -- run <files or folders> [--env name] [--json]
-npm run example      # run examples/scenarios (needs the example workflow imported and active)
+npm run n8nt -- harness install|uninstall --config examples/n8nt.config.yaml
+npm run example          # examples/scenarios (needs examples/workflows/echo.json imported and active)
+npm run example:harness  # examples/harness-scenarios (needs the harness and double.json)
 npm test             # unit tests (node:test)
 npm run typecheck    # tsc, no emit
 ```
@@ -35,6 +37,8 @@ default), or from an optional `.env`.
   loading. Both forms (top-level `trigger` or `steps`) become a list of steps.
 - `src/variables.ts`: `{{ name }}` interpolation, built-ins (`$uuid`, `$now`).
 - `src/n8n-client.ts`: n8n API and webhook calls, execution lookup.
+- `src/harness.ts`: the harness workflow definition, install/uninstall, and
+  finding the target's execution from a harness run.
 - `src/runner.ts`: runs a scenario step by step, builds checks, captures values.
 - `src/assertions.ts`: path lookup (`a.b[0].c`) and matchers (`$exists`,
   `$type`, `$contains`, `$matches`, `$gt`, `$lt`).
@@ -65,6 +69,17 @@ step:
 After a failed step, the remaining steps are skipped. Scenarios and steps run
 one at a time on purpose.
 
+### Harness triggers
+
+`trigger: { harness: { input } }` posts `{ workflowId, input }` to the harness
+webhook (`/webhook/n8nt-harness`, Header Auth `X-N8nt-Harness-Secret`). The
+harness runs `Webhook → Prepare Input → Run Target (Execute Workflow)` and
+responds with all of the target's output items. To check the execution, the
+runner finds the harness run by `__testRunId`, reads the target's execution ID
+from the "Run Target" run (`metadata.subExecution.executionId` on success,
+`error.executionId` on failure), and fetches that execution. Checks and node
+captures apply to the target's execution, never the harness's.
+
 ## Things that are easy to get wrong
 
 - **No build step.** Node runs the `.ts` files directly (type stripping, Node
@@ -73,10 +88,17 @@ one at a time on purpose.
   (`verbatimModuleSyntax`). Relative imports keep the `.ts` extension.
 - **TypeScript is v7** (the native compiler). `@types/node` is pinned to 24 to
   match the Node version in use.
-- **The runner never changes n8n.** It does not activate, create or delete
-  workflows. Keep it that way unless a phase explicitly adds it (for example
-  installing the harness workflow). Inactive workflow or unknown webhook path
-  are reported as errors, not fixed.
+- **Only `n8nt harness install/uninstall` changes n8n.** `run` and `doctor`
+  never create, activate or delete anything. An inactive workflow or an unknown
+  webhook path is reported as an error, not fixed.
+- **n8n 2.x only runs published workflows**, from webhooks and from other
+  workflows alike. Harness targets must be active too.
+- **The harness secret is in n8n's execution data** (the Webhook node's
+  request headers). Never print raw output from the harness run.
+- **Real environment variables win over `.env`** (`process.loadEnvFile` does not
+  override). The CLI snapshots the environment before loading `.env` so
+  `harness install` can warn when a real `N8N_HARNESS_SECRET` would shadow the
+  new one.
 - **Webhook calls hit real integrations.** A scenario runs the real workflow,
   credentials and all. Mocking is planned for Phase 4.
 - **n8n API timing (from Phase 0):** a webhook 404s for a moment right after
@@ -104,13 +126,10 @@ one at a time on purpose.
 
 ## Roadmap
 
-Done: Phase 0 (spike), Phase 1 (core + CLI), Phase 2 part 1 (multi-step
-scenarios, variables, captures). Next:
+Done: Phase 0 (spike), Phase 1 (core + CLI), Phase 2 (multi-step scenarios,
+variables, captures, harness). Background for the harness is in
+`docs/phase-2-harness-findings.md`. Next:
 
-- **Phase 2 part 2:** harness workflow to run any workflow by ID (branch
-  `feat/harness`). Read `docs/phase-2-harness-findings.md` first: targets must
-  be published, the target's execution ID is in the harness run on success and
-  failure, and the harness secret appears in its execution data.
 - **Phase 3:** local web UI (`n8nt ui`): collection tree, editor, run button,
   node-by-node results, history.
 - **Phase 4:** mocking by swapping external nodes on a temporary workflow copy

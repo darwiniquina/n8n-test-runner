@@ -40,27 +40,78 @@ const execution: Execution = {
   },
 };
 
+// Shaped like the spike's real harness run (docs/phase-2-harness-findings.md).
+const harnessExecution: Execution = {
+  ...execution,
+  id: '200',
+  data: {
+    resultData: {
+      runData: {
+        'Run Target': [
+          {
+            data: { main: [[{ json: { row_number: 5 } }]] },
+            metadata: { subExecution: { executionId: '300', workflowId: 'wf-1' } },
+          },
+        ],
+      },
+    },
+  },
+};
+
+const notUsed = async (): Promise<never> => {
+  throw new Error('Not expected in this test.');
+};
+
 // Answers webhook calls in order and records what was sent.
 function fakeClient(responses: Array<Partial<WebhookResponse>>) {
   const calls: WebhookTrigger[] = [];
+  const harnessCalls: Array<{ workflowId: string; input: unknown }> = [];
+  const fetchedExecutions: string[] = [];
   let executionLookups = 0;
+
+  const respond = (index: number): WebhookResponse => ({
+    status: 200,
+    body: null,
+    durationMs: 1,
+    ...responses[index],
+  });
 
   const client: N8nClient = {
     isHealthy: async () => true,
     checkApiKey: async () => {},
+    findWorkflowByName: async (name) => ({ id: 'harness-1', name, active: true }),
     resolveWorkflow: async (name) => ({ id: 'wf-1', name, active: true }),
+    createWorkflow: notUsed,
+    activateWorkflow: notUsed,
+    deleteWorkflow: notUsed,
+    createCredential: notUsed,
+    findCredentialsByName: notUsed,
+    deleteCredential: notUsed,
     triggerWebhook: async (trigger) => {
       calls.push(trigger);
-      const response = responses[calls.length - 1] ?? {};
-      return { status: 200, body: null, durationMs: 1, ...response };
+      return respond(calls.length - 1);
     },
-    findExecution: async () => {
+    triggerHarness: async ({ workflowId, input }) => {
+      harnessCalls.push({ workflowId, input });
+      return respond(harnessCalls.length - 1);
+    },
+    getExecution: async (id) => {
+      fetchedExecutions.push(id);
+      return { ...execution, id };
+    },
+    findExecution: async (workflowId) => {
       executionLookups++;
-      return execution;
+      return workflowId === 'harness-1' ? harnessExecution : execution;
     },
   };
 
-  return { client, calls, executionLookups: () => executionLookups };
+  return {
+    client,
+    calls,
+    harnessCalls,
+    fetchedExecutions,
+    executionLookups: () => executionLookups,
+  };
 }
 
 describe('runScenario', () => {
@@ -136,6 +187,37 @@ describe('runScenario', () => {
     const result = await runScenario(scenario([step({ expect: {} })]), client);
 
     assert.match(result.steps[0].error ?? '', /nothing to check/);
+  });
+
+  it('runs harness steps against the target workflow and its own execution', async () => {
+    const { client, calls, harnessCalls, fetchedExecutions } = fakeClient([
+      { body: [{ doubled: 42 }] },
+    ]);
+
+    const result = await runScenario(
+      scenario(
+        [
+          step({
+            trigger: { harness: { input: { value: '{{ value }}' } } },
+            expect: {
+              response: { body: { '[0].doubled': 42 } },
+              execution: {
+                nodes: { 'Append Row': { ran: true, output: { '[0].row_number': 5 } } },
+              },
+            },
+          }),
+        ],
+        { value: 21 },
+      ),
+      client,
+    );
+
+    assert.equal(result.passed, true);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(harnessCalls, [{ workflowId: 'wf-1', input: { value: 21 } }]);
+    // The check ran on the target's execution (300), not the harness run (200).
+    assert.deepEqual(fetchedExecutions, ['300']);
+    assert.equal(result.steps[0].executionId, '300');
   });
 
   it('resolves environment variables before scenario variables', async () => {
