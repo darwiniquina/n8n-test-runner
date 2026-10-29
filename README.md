@@ -130,6 +130,20 @@ If the trigger defines input fields, only fields with matching names arrive.
 Try it with `examples/workflows/double.json` (import and publish it) and
 `npm run example:harness`.
 
+## Local UI server (preview)
+
+```bash
+npm run n8nt -- ui path/to/scenarios        # opens the browser; --port, --no-open
+```
+
+The browser UI arrives in the next release. The server and its API work now:
+it lists and edits scenario files, runs them with live progress, and keeps the
+last 100 runs in `.runs/` inside the scenario folder (add `.runs/` to that
+folder's `.gitignore`).
+
+It only listens on `127.0.0.1` and needs the random token printed in the URL,
+so other sites and other machines cannot use it.
+
 Run a file or a whole folder:
 
 ```bash
