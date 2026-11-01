@@ -53,7 +53,10 @@ default), or from an optional `.env`.
   error a `from`/`to` offset into the text when it can.
 - `ui/`: the browser UI (React, Vite, CodeMirror). `api.ts` calls the server
   and imports its types from `src/` with `import type`; `App.tsx` holds the
-  state; `Editor.tsx` asks `/api/validate` as you type.
+  state; `Editor.tsx` asks `/api/validate` as you type. `sse.ts` parses the
+  run stream (POST, so `fetch` instead of `EventSource`), `run.ts` turns run
+  events or a history record into what `RunPanel.tsx` shows. Their tests run
+  with `npm test` like the rest.
 - `src/history.ts`: run history as JSON files in `<scenario folder>/.runs/`.
 - `src/runner.ts`: runs a scenario step by step, builds checks, captures values.
 - `src/assertions.ts`: path lookup (`a.b[0].c`) and matchers (`$exists`,
@@ -179,11 +182,10 @@ Done: Phase 0 (spike), Phase 1 (core + CLI), Phase 2 (multi-step scenarios,
 variables, captures, harness). Background for the harness is in
 `docs/phase-2-harness-findings.md`. Next:
 
-- **Phase 3:** local web UI. 3A (server and API) and the first half of 3B
-  (file tree, editor with inline validation, saving, environment picker) are
-  done. Rest of 3B: run button, live step results with expandable node output,
-  history, and a hint when a step has no node output because n8n did not save
-  the execution. POST /api/runs is a POST stream, so the UI reads it with
-  `fetch`, not `EventSource`.
+- **Phase 3:** local web UI. Done: 3A (server and API) and 3B (file tree,
+  editor with inline validation, saving, runs with live step results and node
+  output, history). Not built yet: creating, renaming or deleting files from
+  the tree, cancelling a run, and running a single folder (only one file or
+  everything).
 - **Phase 4:** mocking by swapping external nodes on a temporary workflow copy
   (pinned data does not apply to webhook runs), JUnit reporter, watch mode.

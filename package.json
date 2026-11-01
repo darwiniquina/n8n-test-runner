@@ -13,7 +13,7 @@
     "example:harness": "node src/cli.ts run examples/harness-scenarios --config examples/n8nt.config.yaml",
     "dev:ui": "vite ui",
     "build:ui": "vite build ui",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\" \"ui/src/**/*.test.ts\"",
     "typecheck": "tsc && tsc -p ui"
   },
   "dependencies": {

@@ -1,9 +1,12 @@
 // Calls to the `n8nt ui` server. Every /api call needs the per-launch token.
 
 import type { listEnvironments } from '../../src/config.ts';
+import type { RunRecord, RunSummary } from '../../src/history.ts';
 import type { TreeNode, Validation, ValidationError } from '../../src/workspace.ts';
+import type { RunEvent } from './run.ts';
+import { createEventParser } from './sse.ts';
 
-export type { TreeNode, Validation, ValidationError };
+export type { RunSummary, TreeNode, Validation, ValidationError };
 export type Environments = Awaited<ReturnType<typeof listEnvironments>>;
 export type FileContent = { path: string; content: string; validation: Validation };
 
@@ -37,22 +40,57 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+function request(path: string, init: RequestInit = {}) {
+  return fetch(path, {
     ...init,
     headers: { 'X-N8nt-Token': token, 'Content-Type': 'application/json' },
   });
+}
+
+function failure(response: Response, body: any) {
+  const message =
+    response.status === 401
+      ? 'Missing or wrong token. Open the URL that `n8nt ui` printed.'
+      : (body?.error ?? `Request failed (${response.status}).`);
+  return new ApiError(message, response.status, body);
+}
+
+async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await request(path, init);
   const body = await response.json().catch(() => undefined);
 
   if (!response.ok) {
-    const message =
-      response.status === 401
-        ? 'Missing or wrong token. Open the URL that `n8nt ui` printed.'
-        : (body?.error ?? `Request failed (${response.status}).`);
-    throw new ApiError(message, response.status, body);
+    throw failure(response, body);
   }
 
   return body as T;
+}
+
+// Resolves when the server ends the stream, normally after run-end or run-error.
+async function startRun(
+  paths: string[],
+  environment: string,
+  onEvent: (event: RunEvent) => void,
+) {
+  const response = await request('/api/runs', {
+    method: 'POST',
+    body: JSON.stringify({ paths, environment }),
+  });
+
+  if (!response.ok) {
+    throw failure(response, await response.json().catch(() => undefined));
+  }
+
+  const parse = createEventParser((event, data) => onEvent({ event, data } as RunEvent));
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return;
+    }
+    parse(value);
+  }
 }
 
 const fileUrl = (path: string) => `/api/files?path=${encodeURIComponent(path)}`;
@@ -72,4 +110,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path, content }),
     }),
+  runs: () => call<RunSummary[]>('/api/runs'),
+  run: (id: string) => call<RunRecord>(`/api/runs/${encodeURIComponent(id)}`),
+  startRun,
 };
