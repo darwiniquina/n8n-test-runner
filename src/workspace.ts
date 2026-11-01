@@ -1,8 +1,17 @@
 // File access for the UI server. Every path comes from the browser, so each one
 // is checked to stay inside the scenario folder, after resolving symlinks.
 
-import { readdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { lstat, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import { parseDocument } from 'yaml';
 import { parseConfig } from './config.ts';
 import { parseScenario } from './scenario.ts';
@@ -84,21 +93,45 @@ export async function createWorkspace(root: string) {
       throw new WorkspaceError('Path is outside the workspace.', 403);
     }
 
-    // A symlink inside the folder could still point outside it.
-    const checkPath = mustExist ? fullPath : dirname(fullPath);
-    let realPath: string;
-
-    try {
-      realPath = await realpath(checkPath);
-    } catch {
-      throw new WorkspaceError(`Not found: ${path}`, 404);
-    }
+    // A symlink inside the folder could still point outside it, or at a file
+    // like .env, so the real target is checked, not just the name.
+    const realPath = await realTarget(fullPath, path, mustExist);
 
     if (!isInside(rootPath, realPath)) {
       throw new WorkspaceError('Path is outside the workspace.', 403);
     }
 
+    if (!EDITABLE_EXTENSIONS.has(extname(realPath))) {
+      throw new WorkspaceError('Only .yaml, .yml and .json files can be opened.', 400);
+    }
+
     return fullPath;
+  }
+
+  async function realTarget(fullPath: string, path: string, mustExist: boolean) {
+    try {
+      return await realpath(fullPath);
+    } catch (error) {
+      if (mustExist || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new WorkspaceError(`Not found: ${path}`, 404);
+      }
+    }
+
+    // A new file. A dangling symlink also lands here, and writing through it
+    // would create its target wherever it points, so the name must be free.
+    const isDangling = await lstat(fullPath).then(
+      () => true,
+      () => false,
+    );
+    if (isDangling) {
+      throw new WorkspaceError('Path is outside the workspace.', 403);
+    }
+
+    try {
+      return join(await realpath(dirname(fullPath)), basename(fullPath));
+    } catch {
+      throw new WorkspaceError(`Not found: ${path}`, 404);
+    }
   }
 
   async function readTree(folder: string): Promise<TreeNode[]> {

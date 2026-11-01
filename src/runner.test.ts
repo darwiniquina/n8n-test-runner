@@ -147,6 +147,21 @@ describe('runScenario', () => {
     assert.deepEqual(result.steps[1].captured, { row: 5 });
   });
 
+  it('includes node output when asked, without failing a step if the lookup fails', async () => {
+    const { client } = fakeClient([]);
+
+    const found = await runScenario(scenario([step()]), client, {}, { includeExecution: true });
+    assert.equal(found.steps[0].execution?.nodes[0].name, 'Append Row');
+
+    // Like a workflow that does not save successful executions.
+    client.findExecution = async () => {
+      throw new Error('Execution not found.');
+    };
+    const missing = await runScenario(scenario([step()]), client, {}, { includeExecution: true });
+    assert.equal(missing.passed, true);
+    assert.equal(missing.steps[0].execution, undefined);
+  });
+
   it('skips the remaining steps after a failure', async () => {
     const { client, calls } = fakeClient([{ status: 500 }]);
 

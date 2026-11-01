@@ -268,10 +268,22 @@ async function runStep(
     const capturesNodes = Object.values(step.capture).some(
       (capture) => typeof capture !== 'string',
     );
+    const needsExecution = Boolean(expect.execution) || capturesNodes;
     let execution: Execution | undefined;
 
-    if (expect.execution || capturesNodes || includeExecution) {
-      execution = await findStepExecution(trigger, client, workflow.id, testRunId);
+    if (needsExecution || includeExecution) {
+      try {
+        execution = await findStepExecution(trigger, client, workflow.id, testRunId);
+      } catch (error) {
+        // Only the UI's node view asked for it, so a missing execution (for
+        // example, successful runs not saved) must not fail a step the CLI passes.
+        if (needsExecution) {
+          throw error;
+        }
+      }
+    }
+
+    if (execution) {
       result.executionId = execution.id;
       result.executionError = execution.data?.resultData?.error?.message;
 

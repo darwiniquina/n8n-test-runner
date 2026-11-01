@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -68,6 +68,27 @@ describe('workspace', () => {
     await assert.rejects(workspace.read('.env'), { status: 400 });
     await assert.rejects(workspace.read('notes.txt'), { status: 400 });
     await assert.rejects(workspace.write('script.js', 'x'), { status: 400 });
+  });
+
+  it('refuses symlinks that point outside the workspace or at non-editable files', async (t) => {
+    const { root, workspace } = await workspaceWithFiles();
+    const outside = join(root, '..', `outside-${Date.now()}.yaml`);
+    await writeFile(outside, 'original');
+
+    try {
+      await symlink(outside, join(root, 'out.yaml'), 'file');
+      await symlink(join(root, '.env'), join(root, 'env.yaml'), 'file');
+      await symlink(join(root, '..', 'missing.yaml'), join(root, 'dangling.yaml'), 'file');
+    } catch {
+      // Windows without Developer Mode cannot create symlinks.
+      t.skip('symlinks not permitted');
+      return;
+    }
+
+    await assert.rejects(workspace.write('out.yaml', 'x'), { status: 403 });
+    assert.equal(await readFile(outside, 'utf8'), 'original');
+    await assert.rejects(workspace.read('env.yaml'), { status: 400 });
+    await assert.rejects(workspace.write('dangling.yaml', 'x'), { status: 403 });
   });
 
   it('reports missing files and folders as 404', async () => {
