@@ -139,10 +139,13 @@ npm run n8nt -- ui path/to/scenarios        # opens the browser; --port, --no-op
 
 The UI shows the folder's YAML and JSON files in an editor that checks them as
 you type, with errors marked on the line that causes them. Ctrl+S saves. An
-invalid file is only saved if you choose "Save anyway". Running scenarios from
-the UI comes in the next release. Its API already runs them with live progress
-and keeps the last 100 runs in `.runs/` inside the scenario folder (add
-`.runs/` to that folder's `.gitignore`).
+invalid file is only saved if you choose "Save anyway".
+
+"Run" runs the open file (saving it first), "Run all" runs the whole folder,
+against the environment picked at the top. Steps appear as they finish, with
+failed checks, captured values and each node's output (the first 20 items).
+The last 100 runs are kept in `.runs/` inside the scenario folder (add `.runs/`
+to that folder's `.gitignore`) and can be reopened from "Past runs".
 
 To work on the UI itself, keep `n8nt ui` running and start Vite with hot
 reload. Open the Vite URL with the `?token=` from the `n8nt ui` output:

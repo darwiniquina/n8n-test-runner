@@ -8,6 +8,7 @@
   --selected: #ddeeff;
   --error: #cf222e;
   --error-bg: #ffebe9;
+  --success: #1a7f37;
   color-scheme: light;
 }
 
@@ -22,6 +23,7 @@
     --selected: #2c3a4f;
     --error: #ff7b72;
     --error-bg: #3d1f1f;
+    --success: #7ee787;
     color-scheme: dark;
   }
 }
@@ -45,11 +47,11 @@ select {
 
 .app {
   display: grid;
-  grid-template: auto auto 1fr / 260px 1fr;
+  grid-template: auto auto 1fr / 240px 1fr minmax(320px, 36%);
   grid-template-areas:
-    'header header'
-    'banner banner'
-    'sidebar main';
+    'header header header'
+    'banner banner banner'
+    'sidebar main runs';
   height: 100vh;
 }
 
@@ -140,7 +142,8 @@ select {
   color: var(--muted);
 }
 
-.toolbar button {
+.toolbar button,
+.run-all {
   padding: 2px 12px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -148,7 +151,8 @@ select {
   cursor: pointer;
 }
 
-.toolbar button:disabled {
+.toolbar button:disabled,
+.run-all:disabled {
   cursor: default;
   opacity: 0.5;
 }
@@ -183,6 +187,109 @@ select {
 }
 
 .muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+  white-space: pre-wrap;
+}
+
+.run-all {
+  margin: 0 0 8px 12px;
+}
+
+.runs {
+  grid-area: runs;
+  overflow: auto;
+  padding: 0 12px 12px;
+  border-left: 1px solid var(--border);
+}
+
+.runs-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.runs-header select {
+  min-width: 0;
+}
+
+.runs p {
+  margin: 4px 0;
+}
+
+.runs summary {
+  cursor: pointer;
+}
+
+.scenario {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.scenario .file {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.steps > li {
+  margin: 4px 0;
+}
+
+.steps details > :not(summary),
+.nodes details > :not(summary) {
+  margin-left: 20px;
+}
+
+.check {
+  margin: 4px 0;
+}
+
+.nodes {
+  margin-top: 6px;
+}
+
+.nodes pre {
+  max-height: 300px;
+  overflow: auto;
+  margin: 4px 0;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.status-passed {
+  color: var(--success);
+}
+
+.status-failed {
+  color: var(--error);
+}
+
+.status-running,
+.status-waiting,
+.status-skipped {
   color: var(--muted);
 }
 
