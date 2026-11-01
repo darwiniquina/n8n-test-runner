@@ -12,9 +12,10 @@ import {
   resolve,
   sep,
 } from 'node:path';
-import { parseDocument } from 'yaml';
-import { parseConfig } from './config.ts';
-import { parseScenario } from './scenario.ts';
+import { isMap, isNode, isScalar, parseDocument, type Document } from 'yaml';
+import { z } from 'zod';
+import { configSchema } from './config.ts';
+import { scenarioFileSchema } from './scenario.ts';
 
 const EDITABLE_EXTENSIONS = new Set(['.yaml', '.yml', '.json']);
 const SKIPPED_FOLDERS = new Set(['node_modules', '.git', '.runs']);
@@ -37,7 +38,14 @@ export type TreeNode = {
   children?: TreeNode[];
 };
 
-export type Validation = { valid: true } | { valid: false; errors: string[] };
+export type ValidationError = {
+  message: string;
+  // Offsets into the content, when the error points at a place in it.
+  from?: number;
+  to?: number;
+};
+
+export type Validation = { valid: true } | { valid: false; errors: ValidationError[] };
 
 function isInside(parent: string, child: string) {
   const path = relative(parent, child);
@@ -58,26 +66,69 @@ export function validateDocument(path: string, content: string): Validation {
       JSON.parse(content);
       return { valid: true };
     } catch (error) {
-      return { valid: false, errors: [(error as Error).message] };
+      return { valid: false, errors: [{ message: (error as Error).message }] };
     }
   }
 
   const document = parseDocument(content);
   if (document.errors.length > 0) {
-    return { valid: false, errors: document.errors.map((error) => error.message) };
+    return {
+      valid: false,
+      errors: document.errors.map((error) => ({
+        message: error.message,
+        from: error.pos[0],
+        to: error.pos[1],
+      })),
+    };
   }
 
-  try {
-    if (CONFIG_FILE_PATTERN.test(fileName)) {
-      parseConfig(document.toJS());
-    } else {
-      parseScenario(document.toJS(), path);
-    }
-
+  const schema = CONFIG_FILE_PATTERN.test(fileName) ? configSchema : scenarioFileSchema;
+  const result = schema.safeParse(document.toJS());
+  if (result.success) {
     return { valid: true };
-  } catch (error) {
-    return { valid: false, errors: [(error as Error).message] };
   }
+
+  return {
+    valid: false,
+    errors: result.error.issues.map((issue) => ({
+      message: issue.path.length
+        ? `${z.core.toDotPath(issue.path)}: ${issue.message}`
+        : issue.message,
+      ...issueRange(document, content, issue),
+    })),
+  };
+}
+
+// Points a schema issue at the YAML behind it: an unknown key itself, else the
+// closest node on its path that exists (a missing key marks its parent).
+// Issues about the whole file, like "steps or trigger", get no range.
+function issueRange(document: Document, content: string, issue: z.core.$ZodIssue) {
+  const path = issue.path.filter((key) => typeof key !== 'symbol');
+
+  if (issue.code === 'unrecognized_keys') {
+    const map = document.getIn(path, true);
+    const pair = isMap(map)
+      ? map.items.find((item) => isScalar(item.key) && item.key.value === issue.keys[0])
+      : undefined;
+
+    if (isNode(pair?.key) && pair.key.range) {
+      return { from: pair.key.range[0], to: pair.key.range[1] };
+    }
+  }
+
+  for (let length = path.length; length > 0; length--) {
+    const node = document.getIn(path.slice(0, length), true);
+
+    if (isNode(node) && node.range) {
+      const from = node.range[0];
+      // A whole map or list would underline many lines, so stop at its first.
+      const lineEnd = content.indexOf('\n', from);
+      const to = Math.min(node.range[1], lineEnd === -1 ? content.length : lineEnd);
+      return { from, to };
+    }
+  }
+
+  return {};
 }
 
 export async function createWorkspace(root: string) {

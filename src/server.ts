@@ -8,8 +8,10 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   listEnvironments,
   loadEnvironment,
@@ -26,13 +28,27 @@ const MAX_BODY_BYTES = 1024 * 1024;
 const TOKEN_HEADER = 'x-n8nt-token';
 const RUN_PATH = /^\/api\/runs\/([^/]+)$/;
 
-// Replaced by the real UI in Phase 3B.
-const PLACEHOLDER_PAGE = `<!doctype html>
+// Built by `npm run build:ui`. Vite puts everything but index.html under
+// assets/ with flat, hashed names, so only those names are served.
+const UI_DIR = fileURLToPath(new URL('../ui/dist/', import.meta.url));
+const ASSET_PATH = /^\/assets\/[\w-][\w.-]*$/;
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+};
+// The page shows n8n output, so it may only run its own scripts. CodeMirror
+// injects its styles at runtime, hence inline styles.
+const CONTENT_SECURITY_POLICY = "default-src 'self'; style-src 'self' 'unsafe-inline'";
+
+const NOT_BUILT_PAGE = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>n8nt</title></head>
 <body style="font-family: system-ui, sans-serif; margin: 2rem;">
   <h1>n8nt UI server is running</h1>
-  <p>The browser UI is not built yet. The API is available under <code>/api/</code>.</p>
+  <p>The browser UI is not built. Run <code>npm run build:ui</code> and reload.</p>
 </body>
 </html>`;
 
@@ -43,6 +59,8 @@ export type ServerOptions = {
   port: number;
   token: string;
   createClient?: (environment: Environment) => N8nClient;
+  // The built UI (default: ui/dist).
+  uiDir?: string;
 };
 
 class HttpError extends Error {
@@ -210,6 +228,35 @@ export async function startServer(options: ServerOptions) {
     }
   }
 
+  async function servePage(pathname: string, response: ServerResponse) {
+    const file =
+      pathname === '/' ? 'index.html' : ASSET_PATH.test(pathname) ? pathname.slice(1) : '';
+    if (!file) {
+      throw new HttpError('Not found.', 404);
+    }
+
+    let body: Buffer | string;
+    try {
+      body = await readFile(join(options.uiDir ?? UI_DIR, file));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      if (file !== 'index.html') {
+        throw new HttpError('Not found.', 404);
+      }
+      body = NOT_BUILT_PAGE;
+    }
+
+    response.writeHead(200, {
+      'Content-Type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
+      // Asset names change with their content; the page must always be fresh.
+      'Cache-Control': file === 'index.html' ? 'no-store' : 'public, max-age=31536000, immutable',
+      'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+    });
+    response.end(body);
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse) {
     // Another site's hostname resolving to 127.0.0.1 would send its own Host.
     const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
@@ -224,8 +271,7 @@ export async function startServer(options: ServerOptions) {
         throw new HttpError('Method not allowed.', 405);
       }
 
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(PLACEHOLDER_PAGE);
+      await servePage(url.pathname, response);
       return;
     }
 
