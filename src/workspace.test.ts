@@ -113,7 +113,18 @@ describe('validateDocument', () => {
     const result = validateDocument('echo.yaml', 'name: Missing trigger\nworkflow: Echo\n');
 
     assert.equal(result.valid, false);
-    assert.match(result.valid ? '' : result.errors.join('\n'), /steps.*trigger/);
+    assert.match(result.valid ? '' : result.errors[0].message, /steps.*trigger/);
+  });
+
+  it('points schema errors at the YAML that caused them', () => {
+    const content = SCENARIO.replace('    status: 200', '    status: "ok"\n  respons: {}');
+    const result = validateDocument('echo.yaml', content);
+    assert.equal(result.valid, false);
+
+    const marked = (result.valid ? [] : result.errors).map((error) =>
+      content.slice(error.from, error.to),
+    );
+    assert.deepEqual(marked.sort(), ['"ok"', 'respons']);
   });
 
   it('checks the config file against the config schema, not the scenario one', () => {

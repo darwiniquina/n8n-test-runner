@@ -17,7 +17,7 @@ const environmentSchema = z.strictObject({
     .default({}),
 });
 
-const configSchema = z.strictObject({
+export const configSchema = z.strictObject({
   defaultEnvironment: z.string().default('local'),
   environments: z.record(z.string(), environmentSchema),
 });
@@ -69,7 +69,7 @@ async function readConfig(configPath: string, isExplicit: boolean) {
   }
 }
 
-export function parseConfig(data: unknown): Config {
+function parseConfig(data: unknown): Config {
   const result = configSchema.safeParse(data);
   if (!result.success) {
     throw new Error(z.prettifyError(result.error));

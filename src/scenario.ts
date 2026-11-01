@@ -86,7 +86,7 @@ const stepSchema = z.strictObject({
   capture: capturesSchema.default({}),
 });
 
-const scenarioFileSchema = z
+export const scenarioFileSchema = z
   .strictObject({
     name: z.string().min(1),
     workflow: z.string().min(1).optional(),

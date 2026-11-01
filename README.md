@@ -130,16 +130,26 @@ If the trigger defines input fields, only fields with matching names arrive.
 Try it with `examples/workflows/double.json` (import and publish it) and
 `npm run example:harness`.
 
-## Local UI server (preview)
+## Local UI (preview)
 
 ```bash
+npm run build:ui                            # once, and after pulling UI changes
 npm run n8nt -- ui path/to/scenarios        # opens the browser; --port, --no-open
 ```
 
-The browser UI arrives in the next release. The server and its API work now:
-it lists and edits scenario files, runs them with live progress, and keeps the
-last 100 runs in `.runs/` inside the scenario folder (add `.runs/` to that
-folder's `.gitignore`).
+The UI shows the folder's YAML and JSON files in an editor that checks them as
+you type, with errors marked on the line that causes them. Ctrl+S saves. An
+invalid file is only saved if you choose "Save anyway". Running scenarios from
+the UI comes in the next release. Its API already runs them with live progress
+and keeps the last 100 runs in `.runs/` inside the scenario folder (add
+`.runs/` to that folder's `.gitignore`).
+
+To work on the UI itself, keep `n8nt ui` running and start Vite with hot
+reload. Open the Vite URL with the `?token=` from the `n8nt ui` output:
+
+```bash
+npm run dev:ui
+```
 
 It only listens on `127.0.0.1` and needs the random token printed in the URL,
 so other sites and other machines cannot use it.

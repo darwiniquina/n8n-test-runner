@@ -28,5 +28,7 @@ jobs:
 
       - run: npm run typecheck
 
+      - run: npm run build:ui
+
       # Unit tests use a fake n8n client, so no n8n instance is needed here.
       - run: npm test

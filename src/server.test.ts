@@ -120,11 +120,18 @@ before(async () => {
     'environments:\n  local:\n    baseUrl: http://localhost:5678\n',
   );
 
+  const uiDir = await mkdtemp(join(tmpdir(), 'n8nt-ui-'));
+  await mkdir(join(uiDir, 'assets'));
+  await writeFile(join(uiDir, 'index.html'), '<!doctype html><title>n8nt</title>');
+  await writeFile(join(uiDir, 'assets', 'index-abc.js'), 'console.log(1)');
+  await writeFile(join(root, 'secret.js'), 'not for the browser');
+
   server = await startServer({
     root,
     port: 0,
     token: TOKEN,
     createClient: () => fakeClient,
+    uiDir,
   });
 });
 
@@ -144,6 +151,19 @@ describe('server security', () => {
   it('serves the page without a token, since it holds no data', async () => {
     const reply = await call('/', { headers: { 'x-n8nt-token': '' } });
     assert.equal(reply.status, 200);
+  });
+
+  it('serves only the built page and its assets', async () => {
+    const page = await call('/');
+    assert.equal(page.text, '<!doctype html><title>n8nt</title>');
+
+    const script = await call('/assets/index-abc.js');
+    assert.equal(script.status, 200);
+    assert.equal(script.text, 'console.log(1)');
+
+    assert.equal((await call('/assets/missing.js')).status, 404);
+    assert.equal((await call('/assets/..%2F..%2Fsecret.js')).status, 404);
+    assert.equal((await call('/onboarding/echo.yaml')).status, 404);
   });
 
   it('refuses files outside the workspace', async () => {
